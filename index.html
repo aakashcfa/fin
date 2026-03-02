@@ -430,12 +430,174 @@
 
   .stat.critical-stat strong { color: var(--danger); }
 
+  @media (max-width: 768px) {
+    .header-inner { gap: 12px; }
+    .feed-container { padding: 18px; }
+    .news-card { padding: 16px 18px; }
+    .card-meta { gap: 10px; flex-wrap: wrap; }
+    .source-link-name { min-width: 100px; }
+    .source-link-title { margin: 0 8px; }
+  }
+
   @media (max-width: 640px) {
-    .header-inner { flex-direction: column; align-items: flex-start; }
-    .tabs { gap: 2px; }
-    .tab { padding: 8px 16px; font-size: 13px; }
-    .feed-container { padding: 16px; }
-    .news-card { padding: 14px 16px; }
+    header { padding: 14px 0; }
+
+    .header-inner {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 12px;
+      padding: 0 16px;
+    }
+
+    .logo { justify-content: center; }
+    .logo h1 { font-size: 18px; }
+    .logo-icon { width: 34px; height: 34px; font-size: 18px; }
+
+    .header-actions {
+      justify-content: space-between;
+      align-items: center;
+      width: 100%;
+    }
+
+    .btn-fetch {
+      padding: 12px 20px;
+      font-size: 14px;
+      min-height: 44px;
+      flex: 1;
+      justify-content: center;
+    }
+
+    .timestamp {
+      font-size: 11px;
+      flex-shrink: 0;
+    }
+
+    .tabs {
+      gap: 0;
+      margin-top: 16px;
+      padding: 0 16px;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: none;
+    }
+
+    .tabs::-webkit-scrollbar { display: none; }
+
+    .tab {
+      padding: 10px 18px;
+      font-size: 13px;
+      min-height: 44px;
+      display: flex;
+      align-items: center;
+      white-space: nowrap;
+      flex: 1;
+      justify-content: center;
+    }
+
+    main { padding: 0 16px 40px; }
+
+    .feed-container {
+      padding: 14px;
+      border-radius: 0 0 var(--radius) var(--radius);
+    }
+
+    .news-card {
+      padding: 14px;
+      margin-bottom: 10px;
+      border-radius: 8px;
+    }
+
+    .card-header {
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .card-title { font-size: 14px; }
+    .card-snippet { font-size: 13px; -webkit-line-clamp: 3; }
+
+    .card-meta {
+      flex-wrap: wrap;
+      gap: 8px;
+      font-size: 11px;
+    }
+
+    .card-meta span[style] {
+      width: 100%;
+      margin-left: 0 !important;
+      margin-top: 4px;
+    }
+
+    .stats-bar {
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+
+    .stat { font-size: 11px; }
+
+    .source-link {
+      flex-wrap: wrap;
+      padding: 10px 12px;
+      gap: 4px;
+      min-height: 44px;
+    }
+
+    .source-link-name {
+      min-width: auto;
+      width: 100%;
+      font-size: 13px;
+      margin-bottom: 2px;
+    }
+
+    .source-link-title {
+      margin: 0;
+      white-space: normal;
+      -webkit-line-clamp: 2;
+      display: -webkit-box;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      width: 100%;
+      font-size: 12px;
+    }
+
+    .source-link-time { font-size: 10px; }
+    .source-link-arrow { display: none; }
+
+    .empty-state { padding: 50px 16px; }
+    .empty-state .icon { font-size: 40px; }
+    .empty-state h3 { font-size: 16px; }
+    .empty-state p { font-size: 13px; }
+
+    .badge-important { font-size: 9px; padding: 2px 6px; }
+    .multi-source-badge { font-size: 10px; padding: 2px 6px; }
+
+    .error-msg { font-size: 12px; padding: 12px 14px; }
+
+    .loading-overlay { padding: 40px 16px; }
+  }
+
+  @media (max-width: 380px) {
+    .header-inner { padding: 0 12px; }
+    .tabs { padding: 0 12px; }
+    main { padding: 0 12px 32px; }
+    .feed-container { padding: 10px; }
+    .news-card { padding: 12px; }
+    .tab { padding: 10px 12px; font-size: 12px; }
+    .card-title { font-size: 13px; }
+    .btn-fetch { padding: 12px 16px; font-size: 13px; }
+  }
+
+  @media (hover: none) and (pointer: coarse) {
+    .news-card { -webkit-tap-highlight-color: transparent; }
+    .news-card:active {
+      background: var(--bg-card-hover);
+      border-left-color: var(--accent);
+    }
+    .news-card.critical:active {
+      background: rgba(230, 57, 70, 0.12);
+    }
+    .btn-fetch:active { transform: scale(0.97); }
+    .tab:active { color: var(--text-primary); }
+    .source-link:active { background: var(--bg-card-hover); }
   }
 </style>
 </head>
