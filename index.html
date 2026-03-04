@@ -953,14 +953,25 @@ const DASH_REFRESH_MS = 30000;
 const MARKET_SYMBOLS = {
   dm: {
     indices: [
-      { symbol: '^GSPC',  name: 'S&P 500',     country: 'USA' },
-      { symbol: '^DJI',   name: 'Dow Jones',    country: 'USA' },
-      { symbol: '^IXIC',  name: 'NASDAQ',       country: 'USA' },
-      { symbol: '^FTSE',  name: 'FTSE 100',     country: 'UK' },
-      { symbol: '^GDAXI', name: 'DAX',          country: 'Germany' },
-      { symbol: '^FCHI',  name: 'CAC 40',       country: 'France' },
-      { symbol: '^N225',  name: 'Nikkei 225',   country: 'Japan' },
-      { symbol: '^AXJO',  name: 'ASX 200',      country: 'Australia' },
+      { symbol: '^GSPC',     name: 'S&P 500',           country: 'USA' },
+      { symbol: '^DJI',      name: 'Dow Jones',          country: 'USA' },
+      { symbol: '^IXIC',     name: 'NASDAQ',             country: 'USA' },
+      { symbol: '^GSPTSE',   name: 'S&P/TSX',            country: 'Canada' },
+      { symbol: '^N225',     name: 'Nikkei 225',         country: 'Japan' },
+      { symbol: '^GDAXI',    name: 'DAX',                country: 'Germany' },
+      { symbol: '^FTSE',     name: 'FTSE 100',           country: 'UK' },
+      { symbol: '^FCHI',     name: 'CAC 40',             country: 'France' },
+      { symbol: 'FTSEMIB.MI', name: 'FTSE MIB',          country: 'Italy' },
+      { symbol: '^IBEX',     name: 'IBEX 35',            country: 'Spain' },
+      { symbol: '^AEX',      name: 'AEX',                country: 'Netherlands' },
+      { symbol: '^SSMI',     name: 'SMI',                country: 'Switzerland' },
+      { symbol: '^AXJO',     name: 'ASX 200',            country: 'Australia' },
+      { symbol: '^OMX',      name: 'OMX Stockholm 30',   country: 'Sweden' },
+      { symbol: 'TA35.TA',   name: 'TA-35',              country: 'Israel' },
+      { symbol: '^STI',      name: 'STI',                country: 'Singapore' },
+      { symbol: '^OSEAX',    name: 'OBX',                country: 'Norway' },
+      { symbol: '^OMXC20',   name: 'OMX Copenhagen 20',  country: 'Denmark' },
+      { symbol: '^NZ50',     name: 'NZX 50',             country: 'New Zealand' },
     ],
     bonds: [
       { symbol: '^IRX', name: 'US 13W T-Bill',    country: 'USA', type: 'yield' },
@@ -984,13 +995,25 @@ const MARKET_SYMBOLS = {
   },
   em: {
     indices: [
-      { symbol: '^BSESN',    name: 'SENSEX',           country: 'India' },
-      { symbol: '^NSEI',     name: 'NIFTY 50',         country: 'India' },
       { symbol: '000001.SS', name: 'Shanghai Comp.',    country: 'China' },
-      { symbol: '^HSI',      name: 'Hang Seng',        country: 'Hong Kong' },
-      { symbol: '^BVSP',     name: 'Bovespa',          country: 'Brazil' },
-      { symbol: '^KS11',     name: 'KOSPI',            country: 'South Korea' },
-      { symbol: '^TWII',     name: 'Taiwan Weighted',  country: 'Taiwan' },
+      { symbol: '^BSESN',    name: 'SENSEX',            country: 'India' },
+      { symbol: '^NSEI',     name: 'NIFTY 50',          country: 'India' },
+      { symbol: '^KS11',     name: 'KOSPI',             country: 'South Korea' },
+      { symbol: '^MXX',      name: 'IPC',               country: 'Mexico' },
+      { symbol: '^TASI.SR',  name: 'TASI',              country: 'Saudi Arabia' },
+      { symbol: '^JKSE',     name: 'Jakarta Comp.',     country: 'Indonesia' },
+      { symbol: 'XU100.IS',  name: 'BIST 100',          country: 'Turkey' },
+      { symbol: '^TWII',     name: 'Taiwan Weighted',   country: 'Taiwan' },
+      { symbol: '^BVSP',     name: 'Bovespa',           country: 'Brazil' },
+      { symbol: '^J200',     name: 'JSE Top 40',        country: 'South Africa' },
+      { symbol: '^SET.BK',   name: 'SET',               country: 'Thailand' },
+      { symbol: 'WIG20.WA',  name: 'WIG20',             country: 'Poland' },
+      { symbol: '^KLSE',     name: 'KLCI',              country: 'Malaysia' },
+      { symbol: 'PSEI.PS',   name: 'PSEi',              country: 'Philippines' },
+      { symbol: '^HSI',      name: 'Hang Seng',         country: 'Hong Kong' },
+      { symbol: '^MERV',     name: 'MERVAL',            country: 'Argentina' },
+      { symbol: '^IPSA',     name: 'IPSA',              country: 'Chile' },
+      { symbol: '^CASE30',   name: 'EGX 30',            country: 'Egypt' },
     ],
     bonds: [],
     commodities: [
@@ -1165,6 +1188,8 @@ function agentDebugLog(runId, hypothesisId, location, message, data) {
 const CORS_PROXIES = [
   'https://api.allorigins.win/raw?url=',
   'https://corsproxy.io/?',
+  'https://api.codetabs.com/v1/proxy?quest=',
+  'https://thingproxy.freeboard.io/fetch/',
 ];
 
 async function fetchViaProxy(targetUrl) {
@@ -1289,16 +1314,20 @@ async function fetchYahooChartSnapshot(symbol) {
 }
 
 async function fetchYahooChartSnapshots(symbols) {
-  const pairs = await Promise.all(symbols.map(async (symbol) => {
-    try {
-      return [symbol, await fetchYahooChartSnapshot(symbol)];
-    } catch (_) {
-      return [symbol, null];
-    }
-  }));
   const map = {};
-  for (const [symbol, data] of pairs) {
-    if (data) map[symbol] = data;
+  const batchSize = 6;
+  for (let i = 0; i < symbols.length; i += batchSize) {
+    const batch = symbols.slice(i, i + batchSize);
+    const pairs = await Promise.all(batch.map(async (symbol) => {
+      try {
+        return [symbol, await fetchYahooChartSnapshot(symbol)];
+      } catch (_) {
+        return [symbol, null];
+      }
+    }));
+    for (const [symbol, data] of pairs) {
+      if (data) map[symbol] = data;
+    }
   }
   return map;
 }
@@ -1392,7 +1421,7 @@ async function fetchBondDirectQuotes() {
 }
 
 async function fetchYahooBatchQuotesChunked(symbols) {
-  const chunkSize = 25;
+  const chunkSize = 15;
   const tasks = [];
   for (let i = 0; i < symbols.length; i += chunkSize) {
     tasks.push(fetchYahooBatchQuotes(symbols.slice(i, i + chunkSize)).catch(() => ({})));
