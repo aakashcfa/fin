@@ -510,6 +510,20 @@
     text-overflow: ellipsis;
   }
 
+  .market-card-country {
+    display: inline-block;
+    font-size: 9px;
+    line-height: 1;
+    padding: 2px 5px;
+    margin-left: 5px;
+    border-radius: 3px;
+    background: rgba(136, 153, 170, 0.15);
+    color: var(--text-secondary);
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    vertical-align: middle;
+  }
+
   .market-card-source {
     display: inline-block;
     font-size: 10px;
@@ -939,14 +953,20 @@ const DASH_REFRESH_MS = 30000;
 const MARKET_SYMBOLS = {
   dm: {
     indices: [
-      { symbol: '^GSPC',  name: 'S&P 500' },
-      { symbol: '^DJI',   name: 'Dow Jones' },
-      { symbol: '^IXIC',  name: 'NASDAQ' },
-      { symbol: '^FTSE',  name: 'FTSE 100' },
-      { symbol: '^GDAXI', name: 'DAX' },
-      { symbol: '^FCHI',  name: 'CAC 40' },
-      { symbol: '^N225',  name: 'Nikkei 225' },
-      { symbol: '^AXJO',  name: 'ASX 200' },
+      { symbol: '^GSPC',  name: 'S&P 500',     country: 'USA' },
+      { symbol: '^DJI',   name: 'Dow Jones',    country: 'USA' },
+      { symbol: '^IXIC',  name: 'NASDAQ',       country: 'USA' },
+      { symbol: '^FTSE',  name: 'FTSE 100',     country: 'UK' },
+      { symbol: '^GDAXI', name: 'DAX',          country: 'Germany' },
+      { symbol: '^FCHI',  name: 'CAC 40',       country: 'France' },
+      { symbol: '^N225',  name: 'Nikkei 225',   country: 'Japan' },
+      { symbol: '^AXJO',  name: 'ASX 200',      country: 'Australia' },
+    ],
+    bonds: [
+      { symbol: '^IRX', name: 'US 13W T-Bill',    country: 'USA', type: 'yield' },
+      { symbol: '^FVX', name: 'US 5Y Treasury',   country: 'USA', type: 'yield' },
+      { symbol: '^TNX', name: 'US 10Y Treasury',  country: 'USA', type: 'yield' },
+      { symbol: '^TYX', name: 'US 30Y Treasury',  country: 'USA', type: 'yield' },
     ],
     commodities: [
       { symbol: 'GC=F', name: 'Gold' },
@@ -964,14 +984,15 @@ const MARKET_SYMBOLS = {
   },
   em: {
     indices: [
-      { symbol: '^BSESN',    name: 'SENSEX' },
-      { symbol: '^NSEI',     name: 'NIFTY 50' },
-      { symbol: '000001.SS', name: 'Shanghai Comp.' },
-      { symbol: '^HSI',      name: 'Hang Seng' },
-      { symbol: '^BVSP',     name: 'Bovespa' },
-      { symbol: '^KS11',     name: 'KOSPI' },
-      { symbol: '^TWII',     name: 'Taiwan Weighted' },
+      { symbol: '^BSESN',    name: 'SENSEX',           country: 'India' },
+      { symbol: '^NSEI',     name: 'NIFTY 50',         country: 'India' },
+      { symbol: '000001.SS', name: 'Shanghai Comp.',    country: 'China' },
+      { symbol: '^HSI',      name: 'Hang Seng',        country: 'Hong Kong' },
+      { symbol: '^BVSP',     name: 'Bovespa',          country: 'Brazil' },
+      { symbol: '^KS11',     name: 'KOSPI',            country: 'South Korea' },
+      { symbol: '^TWII',     name: 'Taiwan Weighted',  country: 'Taiwan' },
     ],
+    bonds: [],
     commodities: [
       { symbol: 'GC=F', name: 'Gold' },
       { symbol: 'SI=F', name: 'Silver' },
@@ -1290,8 +1311,17 @@ const STOOQ_COMMODITY_MAP = {
   'HG=F': 'hg.f'
 };
 
+const STOOQ_BOND_MAP = {
+  '^IRX': '3musy.b'
+};
+
 async function fetchStooqHistory(stooqSymbol) {
-  const url = 'https://stooq.com/q/d/l/?s=' + encodeURIComponent(stooqSymbol) + '&i=d';
+  const now = new Date();
+  const start = new Date(now);
+  start.setDate(start.getDate() - 10);
+  const fmt = d => d.toISOString().slice(0, 10).replace(/-/g, '');
+  const url = 'https://stooq.com/q/d/l/?s=' + encodeURIComponent(stooqSymbol)
+    + '&d1=' + fmt(start) + '&d2=' + fmt(now) + '&i=d';
   const resp = await fetchViaProxy(url);
   const csv = await resp.text();
   const lines = csv.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
@@ -1325,6 +1355,33 @@ async function fetchCommodityDirectQuotes() {
       }];
     } catch (_) {
       return [yahooSymbol, null];
+    }
+  }));
+  const map = {};
+  for (const [sym, data] of pairs) {
+    if (data) map[sym] = data;
+  }
+  return map;
+}
+
+async function fetchBondDirectQuotes() {
+  const entries = Object.entries(STOOQ_BOND_MAP);
+  const pairs = await Promise.all(entries.map(async ([symbol, stooqSymbol]) => {
+    try {
+      const hist = await fetchStooqHistory(stooqSymbol);
+      if (!hist) return [symbol, null];
+      const change = hist.last - hist.prev;
+      const changePct = hist.prev === 0 ? 0 : (change / hist.prev) * 100;
+      return [symbol, {
+        symbol,
+        price: hist.last,
+        change,
+        changePct,
+        currency: 'USD',
+        source: 'Stooq'
+      }];
+    } catch (_) {
+      return [symbol, null];
     }
   }));
   const map = {};
@@ -1540,7 +1597,13 @@ function formatPrice(price, currency) {
   return price.toLocaleString('en-US', opts);
 }
 
+function formatYield(value) {
+  if (value == null) return '—';
+  return value.toFixed(3) + '%';
+}
+
 function renderMarketSection(title, items, containerId) {
+  if (!items || items.length === 0) return '';
   const isCommodities = title === 'Commodities';
   let html = `<div class="dashboard-section">
     <div class="section-title">${title}</div>
@@ -1548,9 +1611,13 @@ function renderMarketSection(title, items, containerId) {
   for (const item of items) {
     const key = item.id || item.symbol;
     const data = dashData[key];
+    const isYield = item.type === 'yield';
+    const countryTag = item.country
+      ? `<span class="market-card-country">${escapeHtml(item.country)}</span>`
+      : '';
     if (!data) {
       html += `<div class="market-card" data-symbol="${escapeHtml(key)}" data-name="${escapeHtml(item.name)}" ${item.id ? 'data-crypto="' + item.id + '"' : ''} onclick="openChart(this)">
-        <div class="market-card-name">${escapeHtml(item.name)}</div>
+        <div class="market-card-name">${escapeHtml(item.name)}${countryTag}</div>
         <div class="market-card-loading">Loading...</div>
       </div>`;
       continue;
@@ -1562,11 +1629,15 @@ function renderMarketSection(title, items, containerId) {
     const sourceBadge = (isCommodities && data.source)
       ? `<div class="market-card-source">${escapeHtml(data.source)}</div>`
       : '';
+    const priceDisplay = isYield ? formatYield(data.price) : formatPrice(data.price, data.currency);
+    const changeDisplay = isYield
+      ? `${arrow} ${sign}${data.change.toFixed(3)} bps`
+      : `${arrow} ${sign}${data.change.toFixed(2)} (${sign}${data.changePct.toFixed(2)}%)`;
     html += `<div class="market-card" data-symbol="${escapeHtml(data.symbol || key)}" data-name="${escapeHtml(item.name)}" ${item.id ? 'data-crypto="' + item.id + '"' : ''} onclick="openChart(this)">
-      <div class="market-card-name">${escapeHtml(item.name)}</div>
+      <div class="market-card-name">${escapeHtml(item.name)}${countryTag}</div>
       ${sourceBadge}
-      <div class="market-card-price">${formatPrice(data.price, data.currency)}</div>
-      <div class="market-card-change ${cls}">${arrow} ${sign}${data.change.toFixed(2)} (${sign}${data.changePct.toFixed(2)}%)</div>
+      <div class="market-card-price">${priceDisplay}</div>
+      <div class="market-card-change ${cls}">${changeDisplay}</div>
     </div>`;
   }
   html += '</div></div>';
@@ -1578,6 +1649,7 @@ function renderDashboard(market) {
   const container = document.getElementById(market + 'Dashboard');
   let html = '';
   html += renderMarketSection('Indices', config.indices);
+  html += renderMarketSection('Fixed Income Yields', config.bonds);
   html += renderMarketSection('Commodities', config.commodities);
   html += renderMarketSection('Crypto', config.crypto);
   container.innerHTML = html;
@@ -1734,13 +1806,15 @@ async function refreshDashboardQuotes() {
   const allSymbols = new Set();
   for (const market of ['dm', 'em']) {
     for (const item of MARKET_SYMBOLS[market].indices) allSymbols.add(item.symbol);
+    for (const item of MARKET_SYMBOLS[market].bonds) allSymbols.add(item.symbol);
     for (const item of MARKET_SYMBOLS[market].commodities) allSymbols.add(item.symbol);
   }
 
   try {
-    const [quoteMap, commodityDirectMap, cryptoMap] = await Promise.all([
+    const [quoteMap, commodityDirectMap, bondDirectMap, cryptoMap] = await Promise.all([
       fetchYahooBatchQuotesChunked([...allSymbols]).catch(() => ({})),
       fetchCommodityDirectQuotes().catch(() => ({})),
+      fetchBondDirectQuotes().catch(() => ({})),
       fetchCryptoQuotes().catch(() => ({}))
     ]);
     for (const [symbol, data] of Object.entries(quoteMap)) {
@@ -1748,6 +1822,9 @@ async function refreshDashboardQuotes() {
     }
     for (const [symbol, data] of Object.entries(commodityDirectMap)) {
       dashData[symbol] = data;
+    }
+    for (const [symbol, data] of Object.entries(bondDirectMap)) {
+      if (!dashData[symbol]) dashData[symbol] = data;
     }
     if (cryptoMap && typeof cryptoMap === 'object') {
       for (const [id, data] of Object.entries(cryptoMap)) {
@@ -1757,6 +1834,9 @@ async function refreshDashboardQuotes() {
     const missingSymbols = [];
     for (const market of ['dm', 'em']) {
       for (const item of MARKET_SYMBOLS[market].indices) {
+        if (!dashData[item.symbol]) missingSymbols.push(item.symbol);
+      }
+      for (const item of MARKET_SYMBOLS[market].bonds) {
         if (!dashData[item.symbol]) missingSymbols.push(item.symbol);
       }
       for (const item of MARKET_SYMBOLS[market].commodities) {
@@ -1774,10 +1854,13 @@ async function refreshDashboardQuotes() {
       const indicesMissing = MARKET_SYMBOLS[market].indices
         .map(i => i.symbol)
         .filter(sym => !dashData[sym]);
+      const bondsMissing = MARKET_SYMBOLS[market].bonds
+        .map(i => i.symbol)
+        .filter(sym => !dashData[sym]);
       const commoditiesMissing = MARKET_SYMBOLS[market].commodities
         .map(i => i.symbol)
         .filter(sym => !dashData[sym]);
-      missingByMarket[market] = { indicesMissing, commoditiesMissing };
+      missingByMarket[market] = { indicesMissing, bondsMissing, commoditiesMissing };
     }
     // #region agent log
     agentDebugLog('run-1','H3','index.html:refreshDashboardQuotes','Post-merge dashboard missing symbols', {
