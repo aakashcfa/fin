@@ -701,6 +701,9 @@ const FEEDS = {
 
 const RSS2JSON_API = 'https://api.rss2json.com/v1/api.json?rss_url=';
 const ALLORIGINS_API = 'https://api.allorigins.win/raw?url=';
+const FETCH_TIMEOUT_MS = 6000;
+const CACHE_KEY = 'marketpulse_cache';
+const CACHE_TTL_MS = 5 * 60 * 1000;
 
 let newsData = { global: [], india: [] };
 
@@ -732,43 +735,74 @@ function timeAgo(dateStr) {
   return days + 'd ago';
 }
 
-async function fetchFeed(feedInfo) {
-  const strategies = [
-    () => fetch(RSS2JSON_API + encodeURIComponent(feedInfo.url))
-            .then(r => r.json())
-            .then(data => {
-              if (data.status !== 'ok' || !data.items) throw new Error('rss2json fail');
-              return data.items.map(item => ({
-                title: stripHtml(item.title || ''),
-                snippet: stripHtml(item.description || item.content || '').slice(0, 250),
-                link: item.link || '',
-                pubDate: item.pubDate || '',
-                source: feedInfo.name
-              }));
-            }),
-    () => fetch(ALLORIGINS_API + encodeURIComponent(feedInfo.url))
-            .then(r => r.text())
-            .then(xml => {
-              const parser = new DOMParser();
-              const doc = parser.parseFromString(xml, 'text/xml');
-              const items = doc.querySelectorAll('item');
-              return Array.from(items).map(item => ({
-                title: stripHtml(item.querySelector('title')?.textContent || ''),
-                snippet: stripHtml(item.querySelector('description')?.textContent || '').slice(0, 250),
-                link: item.querySelector('link')?.textContent || '',
-                pubDate: item.querySelector('pubDate')?.textContent || '',
-                source: feedInfo.name
-              }));
-            })
-  ];
+function fetchWithTimeout(url, timeoutMs) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  return fetch(url, { signal: controller.signal }).finally(() => clearTimeout(timer));
+}
 
-  for (const strategy of strategies) {
-    try {
-      const results = await strategy();
-      if (results.length > 0) return results;
-    } catch (_) { /* try next */ }
+function parseRss2Json(feedInfo) {
+  return fetchWithTimeout(RSS2JSON_API + encodeURIComponent(feedInfo.url), FETCH_TIMEOUT_MS)
+    .then(r => r.json())
+    .then(data => {
+      if (data.status !== 'ok' || !data.items) throw new Error('rss2json fail');
+      return data.items.map(item => ({
+        title: stripHtml(item.title || ''),
+        snippet: stripHtml(item.description || item.content || '').slice(0, 250),
+        link: item.link || '',
+        pubDate: item.pubDate || '',
+        source: feedInfo.name
+      }));
+    });
+}
+
+function parseAllOrigins(feedInfo) {
+  return fetchWithTimeout(ALLORIGINS_API + encodeURIComponent(feedInfo.url), FETCH_TIMEOUT_MS)
+    .then(r => r.text())
+    .then(xml => {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(xml, 'text/xml');
+      const items = doc.querySelectorAll('item');
+      return Array.from(items).map(item => ({
+        title: stripHtml(item.querySelector('title')?.textContent || ''),
+        snippet: stripHtml(item.querySelector('description')?.textContent || '').slice(0, 250),
+        link: item.querySelector('link')?.textContent || '',
+        pubDate: item.querySelector('pubDate')?.textContent || '',
+        source: feedInfo.name
+      }));
+    });
+}
+
+async function fetchFeed(feedInfo) {
+  try {
+    const result = await Promise.any([
+      parseRss2Json(feedInfo).then(r => r.length > 0 ? r : Promise.reject('empty')),
+      parseAllOrigins(feedInfo).then(r => r.length > 0 ? r : Promise.reject('empty'))
+    ]);
+    return result;
+  } catch (_) {
+    return [];
   }
-  return [];
+}
+
+function loadCache() {
+  try {
+    const raw = localStorage.getItem(CACHE_KEY);
+    if (!raw) return null;
+    const cached = JSON.parse(raw);
+    if (Date.now() - cached.timestamp > CACHE_TTL_MS) return null;
+    return cached;
+  } catch (_) { return null; }
+}
+
+function saveCache(data) {
+  try {
+    localStorage.setItem(CACHE_KEY, JSON.stringify({
+      timestamp: Date.now(),
+      global: data.global,
+      india: data.india
+    }));
+  } catch (_) { /* storage full or unavailable */ }
 }
 
 const STOP_WORDS = new Set([
@@ -917,6 +951,13 @@ function switchTab(tab) {
   document.getElementById(tab + 'Feed').classList.add('active');
 }
 
+function processItems(items) {
+  return items
+    .filter(item => item.title.trim().length > 0)
+    .map(item => ({ ...item, critical: isCritical(item.title + ' ' + item.snippet) }))
+    .sort((a, b) => new Date(b.pubDate) - new Date(a.pubDate));
+}
+
 async function fetchAllNews() {
   const btn = document.getElementById('fetchBtn');
   const loader = document.getElementById('loadingOverlay');
@@ -924,32 +965,69 @@ async function fetchAllNews() {
 
   btn.classList.add('loading');
   btn.disabled = true;
-  loader.classList.add('visible');
   errorEl.classList.remove('visible');
 
-  document.getElementById('globalFeed').innerHTML = '';
-  document.getElementById('indiaFeed').innerHTML = '';
+  const cached = loadCache();
+  if (cached) {
+    newsData.global = cached.global;
+    newsData.india = cached.india;
+    renderFeed('global');
+    renderFeed('india');
+    document.getElementById('timestamp').textContent =
+      'Cached \u2022 refreshing...';
+  } else {
+    document.getElementById('globalFeed').innerHTML = '';
+    document.getElementById('indiaFeed').innerHTML = '';
+    loader.classList.add('visible');
+  }
 
   const errors = [];
+  newsData.global = [];
+  newsData.india = [];
+  let settled = 0;
+  const totalFeeds = FEEDS.global.length + FEEDS.india.length;
+
+  const feedPromises = [];
+
+  for (const f of FEEDS.global) {
+    feedPromises.push(
+      fetchFeed(f)
+        .catch(() => { errors.push(f.name); return []; })
+        .then(items => {
+          newsData.global.push(...items);
+          newsData.global = processItems(newsData.global);
+          settled++;
+          if (settled >= 3) {
+            loader.classList.remove('visible');
+            renderFeed('global');
+          }
+        })
+    );
+  }
+
+  for (const f of FEEDS.india) {
+    feedPromises.push(
+      fetchFeed(f)
+        .catch(() => { errors.push(f.name); return []; })
+        .then(items => {
+          newsData.india.push(...items);
+          newsData.india = processItems(newsData.india);
+          settled++;
+          if (settled >= 3) {
+            loader.classList.remove('visible');
+            renderFeed('india');
+          }
+        })
+    );
+  }
 
   try {
-    const [globalResults, indiaResults] = await Promise.all([
-      Promise.all(FEEDS.global.map(f => fetchFeed(f).catch(e => { errors.push(f.name); return []; }))),
-      Promise.all(FEEDS.india.map(f => fetchFeed(f).catch(e => { errors.push(f.name); return []; })))
-    ]);
-
-    newsData.global = globalResults.flat()
-      .filter(item => item.title.trim().length > 0)
-      .map(item => ({ ...item, critical: isCritical(item.title + ' ' + item.snippet) }))
-      .sort((a, b) => new Date(b.pubDate) - new Date(a.pubDate));
-
-    newsData.india = indiaResults.flat()
-      .filter(item => item.title.trim().length > 0)
-      .map(item => ({ ...item, critical: isCritical(item.title + ' ' + item.snippet) }))
-      .sort((a, b) => new Date(b.pubDate) - new Date(a.pubDate));
+    await Promise.all(feedPromises);
 
     renderFeed('global');
     renderFeed('india');
+
+    saveCache(newsData);
 
     document.getElementById('timestamp').textContent =
       'Updated: ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
